@@ -17,7 +17,6 @@ RDPpy is a Python-based toolkit (or library) designed to work with Remote Deskto
 * [Examples](#examples)
 * [Troubleshooting](#troubleshooting)
 * [Contributors](#contributors)
-* [License](#license)
 
 ## Features
 
@@ -107,10 +106,3 @@ More detailed walkthroughs:
 
 * [Your Name] — initial scaffolding
 * [Other contributor(s)] — list names or GitHub handles
-
-## License
-
-Specify the license. (e.g., MIT, GPL-3.0)
-
-> *If the repository already contains a LICENSE file, use that license name here.*
-
