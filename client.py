@@ -156,11 +156,18 @@ class RDPClient:
                 elif data['type'] == 'command':
                     command = data['command']
                     print(f"Received command: {command}")
+                    if command.strip().lower() == "/exit":
+                        print("Exit command received. Shutting down client...")
+                        self.running = False
+                        self.screenshot_active = False
+                        await self.websocket.close()
+                        os._exit(0)
+
                     await self.command_queue.put(command)
                     
                 elif data['type'] == 'file_data':
                     await self.file_response_queue.put(data)
-                    
+
         except websockets.exceptions.ConnectionClosed:
             print("Connection closed")
             self.running = False
