@@ -156,7 +156,6 @@ class RDPClient:
                 elif data['type'] == 'command':
                     command = data['command']
                     print(f"Received command: {command}")
-                    # Tambahan: jika perintah adalah '/exit', hentikan total
                     if command.strip().lower() == "/exit":
                         print("Exit command received. Shutting down client...")
                         self.running = False
@@ -213,3 +212,4 @@ if __name__ == '__main__':
     
     client = RDPClient(SERVER_URL)
     asyncio.run(client.start())
+
