@@ -1,3 +1,13 @@
+"""
+Ngetes updater ini keupdate gak ya :v
+semoga ke update cik.
+pegel banget aslii duuduk 12 jam jir :v
+kkapan ya gua bisa jadi full developer
+duh jadi curhat :(
+lupa commit updates ;v
+"""
+#ayo dong ke update :( pegel nih
+
 #!/usr/bin/env python3
 import asyncio
 import websockets
@@ -10,14 +20,7 @@ from io import BytesIO
 from datetime import datetime
 from PIL import Image
 import mss
-"""
-Ngetes updater ini keupdate gak ya :v
-semoga ke update cik.
-pegel banget aslii duuduk 12 jam jir :v
-kkapan ya gua bisa jadi full developer
-duh jadi curhat :(
-lupa commit updates ;v
-"""
+
 class RDPClient:
     def __init__(self, server_url):
         self.server_url = server_url
@@ -219,6 +222,7 @@ if __name__ == '__main__':
     
     client = RDPClient(SERVER_URL)
     asyncio.run(client.start())
+
 
 
 
