@@ -4,8 +4,6 @@
 
 RDPpy is a Python-based toolkit (or library) designed to work with Remote Desktop Protocol (RDP) sessions. It aims to provide functionality such as connecting to RDP servers, automating certain tasks, capturing or replaying sessions — depending on the module implementations.
 
-> *Note: The functionality described here is generic / to be confirmed with the actual code base.*
-
 ## Table of Contents
 
 * [Introduction](#introduction)
@@ -102,7 +100,3 @@ More detailed walkthroughs:
 * Authentication errors: verify credentials, domain, and NLA settings
 * On Linux/macOS: ensure any required native libraries or dependencies are installed
 
-## Contributors
-
-* [Your Name] — initial scaffolding
-* [Other contributor(s)] — list names or GitHub handles
