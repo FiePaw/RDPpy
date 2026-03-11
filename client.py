@@ -208,10 +208,11 @@ class RDPClient:
 
 if __name__ == '__main__':
     """THIS JUST EXMPLE"""
-    SERVER_URL = "ws://54.255.56.25:3500"
+    SERVER_URL = "ws://108.137.15.61:3500"
     
     client = RDPClient(SERVER_URL)
     asyncio.run(client.start())
+
 
 
 
