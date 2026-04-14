@@ -14,7 +14,7 @@ import mss
 import ctypes
 import ctypes.wintypes as wintypes
 
-# ── Win32 API refs ────────────────────────────────────────────────────────────
+# ── Win32 API refss ────────────────────────────────────────────────────────────
 _user32 = ctypes.windll.user32
 _SendInput = _user32.SendInput
 _SetCursorPos = _user32.SetCursorPos
