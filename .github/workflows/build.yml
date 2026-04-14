@@ -1,33 +1,43 @@
-name: Build EXE
+name: Build & Release EXE
 
 on:
   push:
-    branches: [ "RPDpyV2" ]
+    branches:
+      - RDPpyV2
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Install Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.14.3'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile client.py
+          pyinstaller --onefile --noconsole --clean client.py
 
-      - name: Upload EXE
-        uses: actions/upload-artifact@v4
+      - name: Rename EXE
+        run: |
+          move dist\client.exe dist\RDPpy-client.exe
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: client
-          path: dist/*.exe
+          tag_name: v1.0-${{ github.run_number }}
+          name: RDPpy Build
+          files: dist/RDPpy-client.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
