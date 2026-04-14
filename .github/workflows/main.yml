@@ -2,7 +2,7 @@ name: Build EXE
 
 on:
   push:
-    branches: [ "RDPpyV2" ]
+    branches: [ "main" ]
 
 jobs:
   build:
