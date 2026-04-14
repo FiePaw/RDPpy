@@ -2,9 +2,7 @@ name: Build & Release EXE
 
 on:
   push:
-    branches:
-      - RDPpyV2
-  workflow_dispatch:
+    branches: [ "RPDpyV2" ]
 
 jobs:
   build:
