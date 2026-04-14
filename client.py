@@ -788,7 +788,7 @@ class RDPClient:
             await asyncio.sleep(reconnect_delay)
 
 if __name__ == '__main__':
-    """THIS JUST EXMPLE"""
+    """THIS JUST EXMPLE TEST"""
     SERVER_URL = "ws://108.137.15.61:3500"
     
     client = RDPClient(SERVER_URL)
