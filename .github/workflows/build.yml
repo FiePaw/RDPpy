@@ -3,6 +3,9 @@ name: Build & Release EXE
 on:
   push:
     branches: [ "RPDpyV2" ]
+    
+permissions:
+  contents: write
 
 jobs:
   build:
