@@ -28,11 +28,8 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --noconsole --clean client.py
-
-      - name: Rename EXE
-        run: |
-          move dist\client.exe dist\RDPpy-client.exe
+          pyinstaller --onefile --noconsole --icon=icon.ico --clean client.py
+          
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
